@@ -46,3 +46,12 @@ next-env.d.ts
 
 # Sentry Config File
 .env.sentry-build-plugin
+
+/generated/prisma
+
+# PM2
+/logs
+.pm2
+*.pid
+*.seed
+*.pid.lock

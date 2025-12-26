@@ -18,6 +18,13 @@ export interface SaleUser {
   initials: string;
 }
 
+export type Website = {
+  id: number;
+  name: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export const recentSalesData: SaleUser[] = [
   {
     id: 1,

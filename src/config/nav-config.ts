@@ -76,6 +76,13 @@ export const navItems: NavItem[] = [
     items: []
   },
   {
+    title: '网站管理',
+    url: '/dashboard/website',
+    icon: 'settings',
+    isActive: false,
+    items: []
+  },
+  {
     title: 'Pro',
     url: '#', // Placeholder as there is no direct link for the parent
     icon: 'pro',
