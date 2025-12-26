@@ -289,7 +289,74 @@ export async function GET(request: NextRequest) {
     }
 
     // 认证通过，记录访问信息到数据库
+    // 添加去重逻辑：检查短时间内是否有重复请求（解决 Cloudflare 重复请求问题）
     try {
+      // 获取 Cloudflare Ray ID（如果存在）
+      const cfRay = request.headers.get('cf-ray');
+
+      // 去重检查：10秒内相同 IP + 路径的记录
+      // 如果有 Cloudflare Ray ID，使用 Ray ID 的前缀部分进行更精确的去重
+      const deduplicationWindow = 10; // 10秒去重窗口
+      const recentTime = new Date(Date.now() - deduplicationWindow * 1000);
+
+      // 构建查询条件：检查相同 IP 和路径的记录
+      const whereCondition: any = {
+        ip: visitorInfo.ip,
+        request_path: visitorInfo.requestPath,
+        created_at: {
+          gte: recentTime
+        }
+      };
+
+      // 检查是否有重复记录
+      const existingRecord = await prisma.visitorLog.findFirst({
+        where: whereCondition,
+        orderBy: {
+          created_at: 'desc'
+        }
+      });
+
+      // 如果有重复记录，进一步检查是否是 Cloudflare 的重复请求
+      if (existingRecord) {
+        // 如果有 Cloudflare Ray ID，检查是否是相同的 Ray ID
+        if (cfRay) {
+          const currentRayId = cfRay.split('-')[0]; // 提取 Ray ID 前缀
+          const existingRayId = existingRecord.forwarded_for
+            ?.split('|CF-Ray:')[1]
+            ?.split('-')[0];
+
+          // 如果 Ray ID 相同，说明是 Cloudflare 的重复请求，跳过记录
+          if (existingRayId === currentRayId) {
+            console.log(
+              `Skipping duplicate Cloudflare request: CF-Ray=${cfRay}, IP=${visitorInfo.ip}, Path=${visitorInfo.requestPath}`
+            );
+            return NextResponse.json(
+              {
+                success: true,
+                message: 'Duplicate Cloudflare request skipped',
+                duplicate: true
+              },
+              { status: 200 }
+            );
+          }
+        } else {
+          // 没有 Ray ID，但 10 秒内有相同 IP + 路径的记录，可能是重复请求
+          // 为了安全起见，也跳过记录（避免非 Cloudflare 的重复请求）
+          console.log(
+            `Skipping duplicate request: IP=${visitorInfo.ip}, Path=${visitorInfo.requestPath}`
+          );
+          return NextResponse.json(
+            {
+              success: true,
+              message: 'Duplicate request skipped',
+              duplicate: true
+            },
+            { status: 200 }
+          );
+        }
+      }
+
+      // 没有重复，记录访问信息到数据库
       await prisma.visitorLog.create({
         data: {
           ip: visitorInfo.ip,
@@ -306,7 +373,11 @@ export async function GET(request: NextRequest) {
           accept: visitorInfo.accept,
           accept_encoding: visitorInfo.acceptEncoding,
           connection: visitorInfo.connection,
-          forwarded_for: visitorInfo.forwardedFor,
+          // 如果有 Cloudflare Ray ID，将其添加到 forwarded_for 字段用于去重检查
+          // 格式：原始 forwarded_for | CF-Ray:ray_id_prefix
+          forwarded_for: cfRay
+            ? `${visitorInfo.forwardedFor || ''}|CF-Ray:${cfRay.split('-')[0]}`.trim()
+            : visitorInfo.forwardedFor,
           device_type: visitorInfo.deviceType,
           browser: visitorInfo.browser,
           browser_version: visitorInfo.browserVersion,
@@ -362,6 +433,54 @@ export async function POST(request: NextRequest) {
       // 如果没有请求体，忽略
     }
 
+    // 保存到数据库（同样应用去重逻辑）
+    const cfRay = request.headers.get('cf-ray');
+    const deduplicationWindow = 10; // 10秒去重窗口
+    const recentTime = new Date(Date.now() - deduplicationWindow * 1000);
+
+    // 检查是否有重复记录
+    const existingRecord = await prisma.visitorLog.findFirst({
+      where: {
+        ip: visitorInfo.ip,
+        request_path: visitorInfo.requestPath,
+        created_at: {
+          gte: recentTime
+        }
+      },
+      orderBy: {
+        created_at: 'desc'
+      }
+    });
+
+    // 如果有重复记录，跳过
+    if (existingRecord) {
+      if (cfRay) {
+        const currentRayId = cfRay.split('-')[0];
+        const existingRayId = existingRecord.forwarded_for
+          ?.split('|CF-Ray:')[1]
+          ?.split('-')[0];
+        if (existingRayId === currentRayId) {
+          return NextResponse.json(
+            {
+              success: true,
+              message: 'Duplicate Cloudflare request skipped',
+              duplicate: true
+            },
+            { status: 200 }
+          );
+        }
+      } else {
+        return NextResponse.json(
+          {
+            success: true,
+            message: 'Duplicate request skipped',
+            duplicate: true
+          },
+          { status: 200 }
+        );
+      }
+    }
+
     // 保存到数据库
     await prisma.visitorLog.create({
       data: {
@@ -379,7 +498,9 @@ export async function POST(request: NextRequest) {
         accept: visitorInfo.accept,
         accept_encoding: visitorInfo.acceptEncoding,
         connection: visitorInfo.connection,
-        forwarded_for: visitorInfo.forwardedFor,
+        forwarded_for: cfRay
+          ? `${visitorInfo.forwardedFor || ''}|CF-Ray:${cfRay.split('-')[0]}`.trim()
+          : visitorInfo.forwardedFor,
         device_type: visitorInfo.deviceType,
         browser: visitorInfo.browser,
         browser_version: visitorInfo.browserVersion,
