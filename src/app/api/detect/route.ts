@@ -279,13 +279,7 @@ export async function GET(request: NextRequest) {
 
     if (!allowed) {
       // 认证失败，返回 401（Nginx auth_request 会拒绝访问）
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Unauthorized'
-        },
-        { status: 401 }
-      );
+      return new NextResponse(null, { status: 401 });
     }
 
     // 认证通过，记录访问信息到数据库
@@ -330,14 +324,8 @@ export async function GET(request: NextRequest) {
             console.log(
               `Skipping duplicate Cloudflare request: CF-Ray=${cfRay}, IP=${visitorInfo.ip}, Path=${visitorInfo.requestPath}`
             );
-            return NextResponse.json(
-              {
-                success: true,
-                message: 'Duplicate Cloudflare request skipped',
-                duplicate: true
-              },
-              { status: 200 }
-            );
+            // 返回空内容
+            return new NextResponse(null, { status: 200 });
           }
         } else {
           // 没有 Ray ID，但 10 秒内有相同 IP + 路径的记录，可能是重复请求
@@ -345,14 +333,8 @@ export async function GET(request: NextRequest) {
           console.log(
             `Skipping duplicate request: IP=${visitorInfo.ip}, Path=${visitorInfo.requestPath}`
           );
-          return NextResponse.json(
-            {
-              success: true,
-              message: 'Duplicate request skipped',
-              duplicate: true
-            },
-            { status: 200 }
-          );
+          // 返回空内容
+          return new NextResponse(null, { status: 200 });
         }
       }
 
@@ -391,24 +373,12 @@ export async function GET(request: NextRequest) {
     }
 
     // 返回 200 表示允许访问（Nginx auth_request 会允许访问）
-    return NextResponse.json(
-      {
-        success: true,
-        message: 'Visitor information recorded'
-      },
-      { status: 200 }
-    );
+    // 返回空内容
+    return new NextResponse(null, { status: 200 });
   } catch (error) {
     console.error('Error in detect endpoint:', error);
     // 发生错误时，默认拒绝访问（安全起见）
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Authentication check failed',
-        message: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 401 }
-    );
+    return new NextResponse(null, { status: 401 });
   }
 }
 
@@ -460,24 +430,12 @@ export async function POST(request: NextRequest) {
           ?.split('|CF-Ray:')[1]
           ?.split('-')[0];
         if (existingRayId === currentRayId) {
-          return NextResponse.json(
-            {
-              success: true,
-              message: 'Duplicate Cloudflare request skipped',
-              duplicate: true
-            },
-            { status: 200 }
-          );
+          // 返回空内容
+          return new NextResponse(null, { status: 200 });
         }
       } else {
-        return NextResponse.json(
-          {
-            success: true,
-            message: 'Duplicate request skipped',
-            duplicate: true
-          },
-          { status: 200 }
-        );
+        // 返回空内容
+        return new NextResponse(null, { status: 200 });
       }
     }
 
@@ -509,22 +467,11 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    return NextResponse.json(
-      {
-        success: true,
-        message: 'Visitor information recorded'
-      },
-      { status: 200 }
-    );
+    // 返回空内容
+    return new NextResponse(null, { status: 200 });
   } catch (error) {
     console.error('Error recording visitor:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to record visitor information',
-        message: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    );
+    // 返回空内容
+    return new NextResponse(null, { status: 500 });
   }
 }
