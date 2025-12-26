@@ -19,17 +19,32 @@ model Website {
 }
 
 model VisitorLog {
-  id             Int       @id @default(autoincrement())
-  ip             String
-  user_agent     String?
-  referer        String?
-  accept_language String?
-  country        String?
-  is_bot         Boolean   @default(false)
-  is_mobile      Boolean   @default(false)
-  created_at     DateTime  @default(now())
+  id               Int       @id @default(autoincrement())
+  ip               String
+  user_agent       String?
+  referer          String?
+  accept_language  String?
+  country          String?
+  is_bot           Boolean   @default(false)
+  is_mobile        Boolean   @default(false)
+  request_method   String?   // GET, POST, etc.
+  request_path     String?   // 请求路径
+  request_protocol String?   // http, https
+  host             String?   // 主机名
+  accept           String?   // Accept 头
+  accept_encoding  String?   // Accept-Encoding
+  connection       String?   // Connection 类型
+  forwarded_for    String?   // 完整的 X-Forwarded-For
+  device_type      String?   // desktop, mobile, tablet
+  browser          String?   // 浏览器名称
+  browser_version  String?   // 浏览器版本
+  os               String?   // 操作系统
+  os_version       String?   // 操作系统版本
+  created_at       DateTime  @default(now())
 
   @@map("visitor_logs")
   @@index([ip])
   @@index([created_at])
+  @@index([country])
+  @@index([is_bot])
 }
