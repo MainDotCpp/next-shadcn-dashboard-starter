@@ -114,6 +114,7 @@ function parseUserAgent(userAgent: string | null): {
 
 /**
  * 收集访问者信息
+ * 优先从 Nginx 传递的原始请求头获取信息（X-Original-*），如果没有则使用当前请求头
  */
 function collectVisitorInfo(request: NextRequest): {
   ip: string;
@@ -137,13 +138,22 @@ function collectVisitorInfo(request: NextRequest): {
   os: string | null;
   osVersion: string | null;
 } {
+  // 优先从 Nginx 传递的原始请求头获取（X-Original-*），如果没有则使用当前请求头
+  const getOriginalHeader = (headerName: string): string | null => {
+    return (
+      request.headers.get(`x-original-${headerName.toLowerCase()}`) ||
+      request.headers.get(headerName)
+    );
+  };
+
   const ip = getClientIP(request);
-  const userAgent = request.headers.get('user-agent');
-  const referer = request.headers.get('referer');
-  const acceptLanguage = request.headers.get('accept-language');
+  const userAgent = getOriginalHeader('user-agent');
+  const referer = getOriginalHeader('referer');
+  const acceptLanguage = getOriginalHeader('accept-language');
   const country =
     request.headers.get('cf-ipcountry') ||
     request.headers.get('x-vercel-ip-country') ||
+    request.headers.get('x-original-country') ||
     null;
 
   // 检测是否是机器人
@@ -180,9 +190,30 @@ function collectVisitorInfo(request: NextRequest): {
   // 解析 User-Agent
   const uaInfo = parseUserAgent(userAgent);
 
-  // 获取请求信息
+  // 获取请求信息（优先从原始请求头获取）
   const url = new URL(request.url);
   const forwardedFor = request.headers.get('x-forwarded-for');
+
+  // 获取原始请求路径（如果 Nginx 传递了）
+  const originalRequestUri =
+    request.headers.get('x-original-request-uri') ||
+    request.headers.get('x-original-uri') ||
+    null;
+  const requestPath = originalRequestUri || url.pathname + url.search;
+
+  // 获取原始请求方法
+  const originalMethod =
+    request.headers.get('x-original-method') || request.method;
+
+  // 获取原始协议
+  const originalProtocol =
+    request.headers.get('x-original-proto') ||
+    request.headers.get('x-forwarded-proto') ||
+    url.protocol.replace(':', '');
+
+  // 获取原始主机
+  const originalHost =
+    request.headers.get('x-original-host') || request.headers.get('host');
 
   return {
     ip,
@@ -192,13 +223,13 @@ function collectVisitorInfo(request: NextRequest): {
     country,
     isBot,
     isMobile,
-    requestMethod: request.method,
-    requestPath: url.pathname + url.search,
-    requestProtocol: url.protocol.replace(':', ''),
-    host: request.headers.get('host'),
-    accept: request.headers.get('accept'),
-    acceptEncoding: request.headers.get('accept-encoding'),
-    connection: request.headers.get('connection'),
+    requestMethod: originalMethod,
+    requestPath,
+    requestProtocol: originalProtocol,
+    host: originalHost,
+    accept: getOriginalHeader('accept'),
+    acceptEncoding: getOriginalHeader('accept-encoding'),
+    connection: getOriginalHeader('connection'),
     forwardedFor,
     deviceType: uaInfo.deviceType,
     browser: uaInfo.browser,

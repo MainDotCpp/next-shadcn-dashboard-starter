@@ -60,11 +60,26 @@ server {
         proxy_pass_request_body off;
         proxy_set_header Content-Length "";
         
-        # 传递必要的请求头
-        proxy_set_header Host $host;
+        # 传递原始客户端的所有请求头（关键：复刻客户端参数）
+        proxy_set_header X-Original-User-Agent $http_user_agent;
+        proxy_set_header X-Original-Referer $http_referer;
+        proxy_set_header X-Original-Accept-Language $http_accept_language;
+        proxy_set_header X-Original-Accept $http_accept;
+        proxy_set_header X-Original-Accept-Encoding $http_accept_encoding;
+        proxy_set_header X-Original-Connection $http_connection;
+        proxy_set_header X-Original-Host $host;
+        proxy_set_header X-Original-Method $request_method;
+        proxy_set_header X-Original-Request-Uri $request_uri;
+        proxy_set_header X-Original-Uri $request_uri;
+        proxy_set_header X-Original-Proto $scheme;
+        
+        # 传递 IP 和地理位置信息
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # 传递地理位置（如果可用）
+        proxy_set_header X-Original-Country $geoip_country_code;
         
         # 超时配置（认证检查应该快速响应）
         proxy_connect_timeout 5s;
