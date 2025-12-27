@@ -299,28 +299,37 @@ function normalizeDomain(host: string | null): string | null {
 }
 
 /**
+ * 认证检查结果
+ */
+interface AuthCheckResult {
+  allowed: boolean;
+  ruleId?: number;
+  ruleName?: string;
+}
+
+/**
  * 认证检查逻辑
  * 根据请求的域名查找对应的网站和规则，然后应用规则检查
- * 返回 true 表示允许访问，返回 false 表示拒绝访问
+ * 返回检查结果（包含是否允许访问、应用的规则信息）
  */
 async function checkAuth(
   visitorInfo: ReturnType<typeof collectVisitorInfo>,
   request: NextRequest
-): Promise<boolean> {
+): Promise<AuthCheckResult> {
   try {
     // 根据 host 查找对应的规则
     const host = visitorInfo.host;
     if (!host) {
       // 如果没有 host，默认允许访问
       console.log('[Detect] No host found, allowing access');
-      return true;
+      return { allowed: true };
     }
 
     // 规范化域名（去除端口号）
     const normalizedDomain = normalizeDomain(host);
     if (!normalizedDomain) {
       console.log('[Detect] Invalid host format, allowing access');
-      return true;
+      return { allowed: true };
     }
 
     console.log(
@@ -335,7 +344,7 @@ async function checkAuth(
       console.log(
         `[Detect] No rule found for domain: ${normalizedDomain}, allowing access`
       );
-      return true;
+      return { allowed: true };
     }
 
     console.log(
@@ -391,11 +400,15 @@ async function checkAuth(
     console.log(
       `[Detect] Rule check result: ${allowed ? 'ALLOWED' : 'DENIED'} for domain: ${normalizedDomain}`
     );
-    return allowed;
+    return {
+      allowed,
+      ruleId: rule.id,
+      ruleName: rule.name
+    };
   } catch (error) {
     console.error('[Detect] Error checking rules:', error);
     // 发生错误时，默认允许访问（避免影响正常用户）
-    return true;
+    return { allowed: true };
   }
 }
 
@@ -413,21 +426,14 @@ export async function GET(request: NextRequest) {
     const visitorInfo = collectVisitorInfo(request);
 
     // 先进行认证检查
-    const allowed = await checkAuth(visitorInfo, request);
+    const authResult = await checkAuth(visitorInfo, request);
 
-    if (!allowed) {
-      // 认证失败，返回 401（Nginx auth_request 会拒绝访问）
-      return new NextResponse(null, { status: 401 });
-    }
-
-    // 认证通过，记录访问信息到数据库
-    // 添加去重逻辑：检查短时间内是否有重复请求（解决 Cloudflare 重复请求问题）
+    // 记录检测结果到数据库（无论是否允许访问都要记录）
     try {
       // 获取 Cloudflare Ray ID（如果存在）
       const cfRay = request.headers.get('cf-ray');
 
       // 去重检查：10秒内相同 IP + 路径的记录
-      // 如果有 Cloudflare Ray ID，使用 Ray ID 的前缀部分进行更精确的去重
       const deduplicationWindow = 10; // 10秒去重窗口
       const recentTime = new Date(Date.now() - deduplicationWindow * 1000);
 
@@ -462,21 +468,26 @@ export async function GET(request: NextRequest) {
             console.log(
               `Skipping duplicate Cloudflare request: CF-Ray=${cfRay}, IP=${visitorInfo.ip}, Path=${visitorInfo.requestPath}`
             );
-            // 返回空内容
+            // 但仍然需要返回正确的状态码
+            if (!authResult.allowed) {
+              return new NextResponse(null, { status: 401 });
+            }
             return new NextResponse(null, { status: 200 });
           }
         } else {
           // 没有 Ray ID，但 10 秒内有相同 IP + 路径的记录，可能是重复请求
-          // 为了安全起见，也跳过记录（避免非 Cloudflare 的重复请求）
           console.log(
             `Skipping duplicate request: IP=${visitorInfo.ip}, Path=${visitorInfo.requestPath}`
           );
-          // 返回空内容
+          // 但仍然需要返回正确的状态码
+          if (!authResult.allowed) {
+            return new NextResponse(null, { status: 401 });
+          }
           return new NextResponse(null, { status: 200 });
         }
       }
 
-      // 没有重复，记录访问信息到数据库
+      // 没有重复，记录访问信息到数据库（包含检测结果）
       await prisma.visitorLog.create({
         data: {
           ip: visitorInfo.ip,
@@ -494,7 +505,6 @@ export async function GET(request: NextRequest) {
           accept_encoding: visitorInfo.acceptEncoding,
           connection: visitorInfo.connection,
           // 如果有 Cloudflare Ray ID，将其添加到 forwarded_for 字段用于去重检查
-          // 格式：原始 forwarded_for | CF-Ray:ray_id_prefix
           forwarded_for: cfRay
             ? `${visitorInfo.forwardedFor || ''}|CF-Ray:${cfRay.split('-')[0]}`.trim()
             : visitorInfo.forwardedFor,
@@ -502,12 +512,21 @@ export async function GET(request: NextRequest) {
           browser: visitorInfo.browser,
           browser_version: visitorInfo.browserVersion,
           os: visitorInfo.os,
-          os_version: visitorInfo.osVersion
+          os_version: visitorInfo.osVersion,
+          // 记录检测结果
+          access_allowed: authResult.allowed,
+          rule_id: authResult.ruleId || null,
+          rule_name: authResult.ruleName || null
         }
       });
     } catch (dbError) {
       // 数据库错误不影响认证结果，只记录日志
       console.error('Error recording visitor to database:', dbError);
+    }
+
+    if (!authResult.allowed) {
+      // 认证失败，返回 401（Nginx auth_request 会拒绝访问）
+      return new NextResponse(null, { status: 401 });
     }
 
     // 返回 200 表示允许访问（Nginx auth_request 会允许访问）

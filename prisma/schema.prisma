@@ -45,6 +45,10 @@ model VisitorLog {
   browser_version  String?   // 浏览器版本
   os               String?   // 操作系统
   os_version       String?   // 操作系统版本
+  // 检测结果相关字段
+  access_allowed   Boolean?  // 是否允许访问（true=允许, false=拒绝, null=未检测）
+  rule_id          Int?     // 应用的规则 ID
+  rule_name        String?  // 应用的规则名称
   created_at       DateTime  @default(now())
 
   @@map("visitor_logs")
@@ -52,6 +56,8 @@ model VisitorLog {
   @@index([created_at])
   @@index([country])
   @@index([is_bot])
+  @@index([access_allowed])
+  @@index([rule_id])
 }
 
 model Rule {
