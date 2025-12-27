@@ -83,6 +83,13 @@ export const navItems: NavItem[] = [
     items: []
   },
   {
+    title: '访问规则',
+    url: '/dashboard/rules',
+    icon: 'shield',
+    isActive: false,
+    items: []
+  },
+  {
     title: 'Pro',
     url: '#', // Placeholder as there is no direct link for the parent
     icon: 'pro',

@@ -27,4 +27,8 @@ export const prisma =
         : ['error']
   });
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+if (process.env.NODE_ENV !== 'production') {
+  globalForPrisma.prisma = prisma;
+  // 在开发环境中，确保使用最新的 Prisma Client
+  // 如果 schema 更新，需要重启服务器
+}

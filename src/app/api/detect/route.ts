@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { getRuleByDomain } from '@/features/rules/actions/rule-actions';
+import {
+  checkRule,
+  type VisitorInfo as RuleVisitorInfo
+} from '@/features/rules/utils/rule-matcher';
 
 /**
  * 获取客户端真实 IP 地址
@@ -240,25 +245,158 @@ function collectVisitorInfo(request: NextRequest): {
 }
 
 /**
+ * 检测 IP 类型（简化版本）
+ * 实际应用中可以使用 MaxMind GeoIP2、ipapi.co 等第三方服务
+ */
+function detectIPType(ip: string): string | null {
+  if (!ip || ip === 'unknown') {
+    return null;
+  }
+
+  // 检查是否为私有 IP
+  if (
+    ip.startsWith('10.') ||
+    ip.startsWith('192.168.') ||
+    ip.startsWith('172.16.') ||
+    ip.startsWith('172.17.') ||
+    ip.startsWith('172.18.') ||
+    ip.startsWith('172.19.') ||
+    ip.startsWith('172.20.') ||
+    ip.startsWith('172.21.') ||
+    ip.startsWith('172.22.') ||
+    ip.startsWith('172.23.') ||
+    ip.startsWith('172.24.') ||
+    ip.startsWith('172.25.') ||
+    ip.startsWith('172.26.') ||
+    ip.startsWith('172.27.') ||
+    ip.startsWith('172.28.') ||
+    ip.startsWith('172.29.') ||
+    ip.startsWith('172.30.') ||
+    ip.startsWith('172.31.') ||
+    ip === '127.0.0.1' ||
+    ip === '::1'
+  ) {
+    return 'RESIDENTIAL';
+  }
+
+  // 这里可以集成第三方 API 来检测 IP 类型
+  // 例如：使用 ipapi.co、MaxMind GeoIP2 等
+  // 目前返回 null，表示未知类型
+  // 实际应用中应该调用 API 获取 ISP、IDC 等信息
+
+  return null;
+}
+
+/**
+ * 规范化域名（去除端口号）
+ */
+function normalizeDomain(host: string | null): string | null {
+  if (!host) {
+    return null;
+  }
+  // 去除端口号（例如：example.com:443 -> example.com）
+  return host.split(':')[0].toLowerCase().trim();
+}
+
+/**
  * 认证检查逻辑
+ * 根据请求的域名查找对应的网站和规则，然后应用规则检查
  * 返回 true 表示允许访问，返回 false 表示拒绝访问
  */
-function checkAuth(
-  visitorInfo: ReturnType<typeof collectVisitorInfo>
-): boolean {
-  // 示例：检查是否是机器人（可以根据需求修改）
-  // if (visitorInfo.isBot) {
-  //   return false;
-  // }
+async function checkAuth(
+  visitorInfo: ReturnType<typeof collectVisitorInfo>,
+  request: NextRequest
+): Promise<boolean> {
+  try {
+    // 根据 host 查找对应的规则
+    const host = visitorInfo.host;
+    if (!host) {
+      // 如果没有 host，默认允许访问
+      console.log('[Detect] No host found, allowing access');
+      return true;
+    }
 
-  // 示例：IP 白名单检查（可以从数据库读取）
-  // const allowedIPs = ['1.2.3.4', '5.6.7.8'];
-  // if (!allowedIPs.includes(visitorInfo.ip)) {
-  //   return false;
-  // }
+    // 规范化域名（去除端口号）
+    const normalizedDomain = normalizeDomain(host);
+    if (!normalizedDomain) {
+      console.log('[Detect] Invalid host format, allowing access');
+      return true;
+    }
 
-  // 默认允许访问
-  return true;
+    console.log(
+      `[Detect] Checking rules for domain: ${normalizedDomain} (original: ${host})`
+    );
+
+    // 从数据库获取该域名对应的规则
+    const rule = await getRuleByDomain(normalizedDomain);
+
+    // 如果没有规则，默认允许访问
+    if (!rule || !rule.steps || rule.steps.length === 0) {
+      console.log(
+        `[Detect] No rule found for domain: ${normalizedDomain}, allowing access`
+      );
+      return true;
+    }
+
+    console.log(
+      `[Detect] Found rule: ${rule.name} (${rule.steps.length} steps)`
+    );
+
+    // 解析查询参数
+    const searchParams: Record<string, string> = {};
+    try {
+      const url = new URL(request.url);
+      url.searchParams.forEach((value, key) => {
+        searchParams[key] = value;
+      });
+    } catch (urlError) {
+      console.warn('[Detect] Failed to parse URL for search params:', urlError);
+    }
+
+    // 检测 IP 类型（简化版本，实际应用中可以使用第三方 API）
+    const ipType = detectIPType(visitorInfo.ip);
+
+    // 转换为规则匹配器需要的格式
+    const ruleVisitorInfo: RuleVisitorInfo = {
+      ip: visitorInfo.ip,
+      userAgent: visitorInfo.userAgent,
+      referer: visitorInfo.referer,
+      country: visitorInfo.country,
+      acceptLanguage: visitorInfo.acceptLanguage,
+      isBot: visitorInfo.isBot,
+      requestPath: visitorInfo.requestPath,
+      searchParams,
+      ipType
+    };
+
+    console.log(
+      `[Detect] Visitor info: IP=${visitorInfo.ip}, Country=${visitorInfo.country}, Bot=${visitorInfo.isBot}, Path=${visitorInfo.requestPath}`
+    );
+
+    // 应用规则检查（按步骤顺序执行）
+    const allowed = checkRule(ruleVisitorInfo, {
+      id: rule.id,
+      name: rule.name,
+      steps: rule.steps.map((s) => ({
+        id: s.id,
+        step_order: s.step_order,
+        type: s.type as any,
+        name: s.name,
+        config: s.config as any,
+        action: s.action as any,
+        enabled: s.enabled
+      }))
+    });
+
+    console.log(
+      `[Detect] Rule check result: ${allowed ? 'ALLOWED' : 'DENIED'} for domain: ${normalizedDomain}`
+    );
+    return allowed;
+  } catch (error) {
+    console.error('[Detect] Error checking rules:', error);
+    // 发生错误时，默认允许访问（避免影响正常用户）
+    return true;
+  }
 }
 
 /**
@@ -275,7 +413,7 @@ export async function GET(request: NextRequest) {
     const visitorInfo = collectVisitorInfo(request);
 
     // 先进行认证检查
-    const allowed = checkAuth(visitorInfo);
+    const allowed = await checkAuth(visitorInfo, request);
 
     if (!allowed) {
       // 认证失败，返回 401（Nginx auth_request 会拒绝访问）

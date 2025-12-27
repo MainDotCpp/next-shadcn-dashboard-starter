@@ -12,10 +12,15 @@ datasource db {
 model Website {
   id         Int      @id @default(autoincrement())
   name       String
+  domain     String?  // 域名（用于匹配请求的 host）
+  rule_id    Int?     // 关联的规则 ID
+  rule       Rule?    @relation(fields: [rule_id], references: [id], onDelete: SetNull)
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
   @@map("websites")
+  @@index([domain])
+  @@index([rule_id])
 }
 
 model VisitorLog {
@@ -47,4 +52,53 @@ model VisitorLog {
   @@index([created_at])
   @@index([country])
   @@index([is_bot])
+}
+
+model Rule {
+  id          Int       @id @default(autoincrement())
+  name        String    // 规则名称
+  description String?   // 规则描述
+  enabled     Boolean   @default(true) // 是否启用
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+  
+  // 关联的网站
+  websites    Website[]
+  // 规则步骤（按顺序执行）
+  steps       RuleStep[]
+
+  @@map("rules")
+  @@index([enabled])
+}
+
+// 规则步骤（支持拖拽排序）
+model RuleStep {
+  id          Int      @id @default(autoincrement())
+  rule_id     Int      // 关联的规则 ID
+  rule        Rule     @relation(fields: [rule_id], references: [id], onDelete: Cascade)
+  step_order  Int      // 步骤顺序（用于排序）
+  type        String   // 步骤类型: country, language, ip, user_agent, path, bot
+  name        String   // 步骤名称（用于显示）
+  enabled     Boolean  @default(true) // 是否启用此步骤
+  
+  // 配置数据（JSON格式，根据类型不同存储不同数据）
+  // country: { countries: ["CN", "US"], match_mode: "include" | "exclude" }
+  // language: { languages: ["zh", "en"], match_mode: "include" | "exclude" }
+  // ip: { ips: ["192.168.1.1"], match_mode: "whitelist" | "blacklist" }
+  // user_agent: { pattern: ".*bot.*", match_mode: "regex" | "contains" }
+  // path: { pattern: "/admin.*", match_mode: "regex" | "contains" }
+  // bot: { match_bot: true | false }
+  config      Json     // 配置数据（JSON格式）
+  
+  // 动作: intercept（拦截，直接阻止）, continue（继续，执行下一个步骤）, allow（放行，直接允许）
+  action      String   @default("continue")
+  
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@map("rule_steps")
+  @@index([rule_id])
+  @@index([step_order])
+  @@index([enabled])
+  @@unique([rule_id, step_order]) // 确保每个规则内的步骤顺序唯一
 }

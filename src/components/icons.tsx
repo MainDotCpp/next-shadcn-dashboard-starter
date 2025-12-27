@@ -21,6 +21,7 @@ import {
   IconPizza,
   IconPlus,
   IconSettings,
+  IconShield,
   IconSun,
   IconTrash,
   IconBrandTwitter,
@@ -77,5 +78,6 @@ export const Icons = {
   pro: IconCrown,
   exclusive: IconStar,
   account: IconUserCircle,
-  profile: IconUser
+  profile: IconUser,
+  shield: IconShield
 };

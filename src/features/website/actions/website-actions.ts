@@ -30,6 +30,14 @@ export async function getWebsites({
         where,
         skip,
         take: limit,
+        include: {
+          rule: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        },
         orderBy: {
           created_at: 'desc'
         }
@@ -45,9 +53,12 @@ export async function getWebsites({
       websites: websites.map((w) => ({
         id: w.id,
         name: w.name,
+        domain: w.domain || undefined,
+        rule_id: w.rule_id || undefined,
+        rule_name: w.rule?.name,
         created_at: w.created_at.toISOString(),
         updated_at: w.updated_at.toISOString()
-      })) as Website[]
+      })) as any[]
     };
   } catch (error) {
     console.error('Error fetching websites:', error);
@@ -58,7 +69,15 @@ export async function getWebsites({
 export async function getWebsiteById(id: number) {
   try {
     const website = await prisma.website.findUnique({
-      where: { id }
+      where: { id },
+      include: {
+        rule: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
+      }
     });
 
     if (!website) {
@@ -74,9 +93,12 @@ export async function getWebsiteById(id: number) {
       website: {
         id: website.id,
         name: website.name,
+        domain: website.domain || undefined,
+        rule_id: website.rule_id || undefined,
+        rule_name: website.rule?.name,
         created_at: website.created_at.toISOString(),
         updated_at: website.updated_at.toISOString()
-      } as Website
+      } as any
     };
   } catch (error) {
     console.error('Error fetching website:', error);
@@ -84,11 +106,17 @@ export async function getWebsiteById(id: number) {
   }
 }
 
-export async function createWebsite(data: { name: string }) {
+export async function createWebsite(data: {
+  name: string;
+  domain?: string;
+  rule_id?: number | null;
+}) {
   try {
     const website = await prisma.website.create({
       data: {
-        name: data.name
+        name: data.name,
+        domain: data.domain || null,
+        rule_id: data.rule_id || null
       }
     });
 
@@ -100,9 +128,11 @@ export async function createWebsite(data: { name: string }) {
       website: {
         id: website.id,
         name: website.name,
+        domain: website.domain || undefined,
+        rule_id: website.rule_id || undefined,
         created_at: website.created_at.toISOString(),
         updated_at: website.updated_at.toISOString()
-      } as Website
+      } as any
     };
   } catch (error) {
     console.error('Error creating website:', error);
@@ -110,13 +140,23 @@ export async function createWebsite(data: { name: string }) {
   }
 }
 
-export async function updateWebsite(id: number, data: { name: string }) {
+export async function updateWebsite(
+  id: number,
+  data: {
+    name?: string;
+    domain?: string;
+    rule_id?: number | null;
+  }
+) {
   try {
+    const updateData: any = {};
+    if (data.name !== undefined) updateData.name = data.name;
+    if (data.domain !== undefined) updateData.domain = data.domain || null;
+    if (data.rule_id !== undefined) updateData.rule_id = data.rule_id || null;
+
     const website = await prisma.website.update({
       where: { id },
-      data: {
-        name: data.name
-      }
+      data: updateData
     });
 
     revalidatePath('/dashboard/website');
@@ -128,9 +168,11 @@ export async function updateWebsite(id: number, data: { name: string }) {
       website: {
         id: website.id,
         name: website.name,
+        domain: website.domain || undefined,
+        rule_id: website.rule_id || undefined,
         created_at: website.created_at.toISOString(),
         updated_at: website.updated_at.toISOString()
-      } as Website
+      } as any
     };
   } catch (error) {
     console.error('Error updating website:', error);
